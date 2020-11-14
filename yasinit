@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright 2018 Andreas Krüger, andreas.krueger@famsik.de
+# Copyright 2018, 2020 Andreas Krüger, andreas.krueger@famsik.de
 # 
 # Licensed under the Apache License, Version 2.0 (the "License"); you
 # may not use this file except in compliance with the License. You may
@@ -44,7 +44,12 @@ own_exit_value = 0
 # Internal state: Whether we are in the process of shutting down.
 presently_terminating = False
 
-# When we decide to terminate, we send a SIGTERM to all our guarded processes:
+# Here is the lock we use so signal handlers
+# and main thread do not interfere hanging data:
+lock = threading.Lock()
+
+# When we decide to terminate, we send a SIGTERM to all our guarded processes
+# (this is always called by a thread that has the lock):
 def terminate():
     global presently_terminating # Call only if you have the lock
     if not presently_terminating:
@@ -54,34 +59,36 @@ def terminate():
             logger.info("Sending SIGTERM to %s (pid %s)", pid2runme[pid], pid)
             os.kill(pid, signal.SIGTERM)
 
-# Here is the lock we use so signal handlers
-# and main thread do not interfere hanging data:
-lock = threading.Lock()
-
 threads_to_be_joined = queue.Queue()
 
 def log_and_determine_own_exit_value(pid, exitstatus):
     global own_exit_value
 
+    if pid in pid2runme:
+        command = pid2runme[pid]
+    else:
+        # I don't think this can happen:
+        logger.error("Internal bug: Guarded process pid %s apparently started by us, but maybe not???", pid)
+        command = "???"
+
     if os.WIFEXITED(exitstatus):
         if 0 == os.WEXITSTATUS(exitstatus):
-            logger.info("Guarded process %s (pid %s) terminated with exit status 0.", pid2runme[pid], pid)
+            logger.info("Guarded process %s (pid %s) terminated with exit status 0.", command, pid)
         else:
-            logger.warning("Guarded process %s (pid %s) terminated with exit status %s", pid2runme[pid], pid, os.WEXITSTATUS(exitstatus))
+            logger.warning("Guarded process %s (pid %s) terminated with exit status %s", command, pid, os.WEXITSTATUS(exitstatus))
             if own_exit_value == 0:
                 own_exit_value = os.WEXITSTATUS(exitstatus)
     elif os.WIFSIGNALED(exitstatus):
-        logger.warning("Guarded process %s (pid %s) terminated by signal %s it didn't handle.", pid2runme[pid], pid, os.WTERMSIG(exitstatus))
+        logger.warning("Guarded process %s (pid %s) terminated by signal %s it didn't handle.", command, pid, os.WTERMSIG(exitstatus))
         if own_exit_value == 0:
             own_exit_value = 1
     else:
-        logger.error("Do not understand the exit status. Terminating anyway. %s (pid %s), raw exitvalue %s", pid2runme[pid], pid, exitstatus)
+        logger.error("Do not understand the exit status. Terminating anyway. %s (pid %s), raw exitvalue %s", command, pid, exitstatus)
         
 # Here is the signal handler that handles the termination of a child.
 
 def sigchld_handler(signo, stackframe):
     while True:
-
         # We try to collect what we can:
         try:
             (pid, exitstatus) = os.waitpid(-1, os.WNOHANG)
@@ -97,16 +104,18 @@ def sigchld_handler(signo, stackframe):
             # that the main thread holds, as it cannot release that lock
             # while the signal handler runs (which it does not the main thread as well).
             # So delegate all real functionality to a thread.
-            def handle_in_thread():
-                threads_to_be_joined.put(threading.current_thread())
-                with lock:
-                    if pid in guarded_pids:
-                        guarded_pids.discard(pid)
-                        log_and_determine_own_exit_value(pid, exitstatus)
-                        terminate()
-                    else:
-                        logger.info("Collected spurious child %s.", pid)
-            threading.Thread(target = handle_in_thread).start()
+            def handle_pid_in_thread(copy_of_pid):
+                def handle_in_thread():
+                    threads_to_be_joined.put(threading.current_thread())
+                    with lock:
+                        if copy_of_pid in guarded_pids:
+                            guarded_pids.discard(copy_of_pid)
+                            log_and_determine_own_exit_value(copy_of_pid, exitstatus)
+                            terminate()
+                        else:
+                            logger.info("Collected spurious child %s.", copy_of_pid)
+                threading.Thread(target = handle_in_thread).start()
+            handle_pid_in_thread(pid)
 
 signal.signal(signal.SIGCHLD, sigchld_handler)
 
