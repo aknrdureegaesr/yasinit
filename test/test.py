@@ -16,8 +16,7 @@ import os, os.path, signal, subprocess, unittest
 
 class YasinitTest(unittest.TestCase):
 
-    # For now, use the Python that can be installed in Debian stretch from Debian package manager:
-    IMAGE_TAG = 'python:3.5-stretch'
+    IMAGE_TAG = 'python:3.10-bullseye'
 
     OVERHEAD_FOR_DOCKER = 3 # seconds
     SHUTDOWN_DURATION = 2   # seconds
