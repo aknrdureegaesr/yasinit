@@ -1,6 +1,6 @@
 import os, os.path, signal, subprocess, unittest
 
-# Copyright 2018 Andreas Krüger, andreas.krueger@famsik.de
+# Copyright 2018, 2020 Andreas Krüger, andreas.krueger@famsik.de
 # 
 # Licensed under the Apache License, Version 2.0 (the "License"); you
 # may not use this file except in compliance with the License. You may
@@ -60,7 +60,7 @@ class YasinitTest(unittest.TestCase):
     def test_normal_command_run_shutdown_from_outside(self):
         popen = self.run_docker('1', ['/etc/yasinit/10seconds.run', 'lorem'], stdout = subprocess.PIPE, stderr = subprocess.PIPE)
         with self.assertRaises(subprocess.TimeoutExpired):
-            (o, e) = popen.communicate(timeout = YasinitTest.OVERHEAD_FOR_DOCKER + 7)
+            (o, e) = popen.communicate(timeout = YasinitTest.OVERHEAD_FOR_DOCKER + 5)
             print("ERROR: This should not happen:\n{}\n{}\n".format(e, o))
         popen.terminate()
         (stdout_data, stderr_data) = popen.communicate(timeout = 2)
@@ -119,3 +119,25 @@ class YasinitTest(unittest.TestCase):
         self.assertIsNot(-1, stderr_data.find("Command ['/etc/yasinit/2seconds_then_exit0.run'] started"))
         self.assertIsNot(-1, stderr_data.find("Shutdown failed, terminating even though some processes are still running. Pids: "))
         self.assertEqual(2, popen.returncode)
+
+    def test_short_run_several_containers(self):
+        popen = self.run_docker('6', stdout = subprocess.PIPE, stderr = subprocess.PIPE)
+        (stdout_data, stderr_data) = popen.communicate(timeout=YasinitTest.OVERHEAD_FOR_DOCKER + YasinitTest.SHUTDOWN_DURATION)
+        self.assertEqual('', stdout_data)
+        self.assertIsNot(-1, stderr_data.find("Command ['/etc/yasinit/quick0.run'] started"))
+        self.assertIsNot(-1, stderr_data.find("Command ['/etc/yasinit/quick1.run'] started"))
+        self.assertIsNot(-1, stderr_data.find("Guarded process ['/etc/yasinit/quick0.run']"))
+        self.assertIsNot(-1, stderr_data.find("Guarded process ['/etc/yasinit/quick1.run']"))
+        self.assertEqual(0, popen.returncode)
+
+    def test_short_run_several_containers_one_fails(self):
+        popen = self.run_docker('7', stdout = subprocess.PIPE, stderr = subprocess.PIPE)
+        (stdout_data, stderr_data) = popen.communicate(timeout=YasinitTest.OVERHEAD_FOR_DOCKER + YasinitTest.SHUTDOWN_DURATION)
+        self.assertEqual('', stdout_data)
+        self.assertIsNot(-1, stderr_data.find("Command ['/etc/yasinit/many_quick_0.run'] started"))
+        self.assertIsNot(-1, stderr_data.find("Command ['/etc/yasinit/many_quick_1.run'] started"))
+        self.assertIsNot(-1, stderr_data.find("Guarded process ['/etc/yasinit/many_quick_0.run']"))
+        self.assertIsNot(-1, stderr_data.find("Guarded process ['/etc/yasinit/many_quick_1.run']"))
+        self.assertEqual(1, popen.returncode)
+
+

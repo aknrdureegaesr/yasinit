@@ -18,6 +18,8 @@ should look like.
   but that terminated after their parent process.  Shrug shoulders and
   continue.
 
+Works with Python 3.5 or newer.
+
 ## Stop the show
 
 When we stop the show, we simply send any of our children still alive
@@ -82,12 +84,18 @@ problem with a decent `init`, even a simple one like this.
 
 ## Tests
 
+The tests presently use the somewhat dated Python 3.5 Debian Stretch
+Docker image.  The intention is it tests `yasinit` works with that
+old Python version (and all newer ones).
+
 ```
-virtualenv -p $(which python3) virtualenv &&
+python3 -m venv virtualenv &&
 . virtualenv/bin/activate &&
 cd test && python -m unittest discover
 ```
 
-The tests in their present form have known race conditions.
-On my machine, they fail the first time after a reboot,
-but rerunning immediately thereafter works.
+The tests in their present form may have race conditions: On a machine
+with magnetic disk, they used to fail the first time after a reboot,
+but rerunning immediately thereafter used to work.
+
+That machine now has a SSD...
